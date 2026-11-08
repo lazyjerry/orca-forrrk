@@ -90,6 +90,17 @@ orca terminal switch --terminal <terminalId> --json
 - **副作用**：會把 Orca 的畫面切到該終端機。
 - **風險**：CLI 的指令與參數不屬於外掛 API 的相容性承諾，Orca 改版後可能改變。症狀是每次按 Auto Push 都出現「切換不過去」的警告。這時先用 `orca terminal switch --help` 確認參數有沒有變。
 
+與 VS Code 版的差異：
+
+| 項目 | forrrk（VS Code） | Orca 版 |
+|---|---|---|
+| 開終端機 | `vscode.window.createTerminal`，直接開在畫面上 | 外掛 API 的 `terminal.create`，只能開背景終端機 |
+| 顯示並切過去 | 同一組 API 的 `terminal.show()` | 外掛 API 做不到，改呼叫 Orca CLI 的 `orca terminal switch` |
+| 送出指令 | `cwd` 設為 repo 根目錄，再用 `sendText` 送出 CLI | `terminal.create` 的 `command` 帶 `cd <repo 根目錄> && <CLI>` |
+| 上一個終端機 | 開新的之前先關掉 | 不會關，每按一次就多一個 |
+| 切換失敗時 | 不會發生，全程走擴充 API | 終端機照樣在背景執行，面板顯示警告和指令，讓你自己貼上執行 |
+| 依賴 | 只用 VS Code 擴充 API | 外掛 API 加上 Orca CLI，CLI 不在外掛 API 的相容性承諾內 |
+
 ## 開發
 
 ```sh
