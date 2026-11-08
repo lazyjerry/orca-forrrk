@@ -160,14 +160,17 @@ export default function Panel() {
 
   return (
     <Stack gap="md">
-      <Toolbar label="forrrk 操作" gap="xs">
-        <IconButton icon="refresh" label="刷新" tooltip="重新定位儲存庫並讀取資訊" onPress={reload} />
-        <IconButton icon="file" label="Push 目前檔案" tooltip="只對目前檔案執行 git-auto-push -a -f，不動其他變更" onPress={autoPushFile} />
-        <IconButton icon="upload" label="Auto Push" tooltip="在 Orca 終端機執行 git-auto-push -a" onPress={autoPush} />
-        <IconButton icon="folder" label="開啟資料夾" tooltip="在檔案管理員開啟儲存庫根目錄" onPress={openFolder} />
-        <IconButton icon="globe" label="開啟遠端網頁" tooltip="用瀏覽器開啟遠端儲存庫" onPress={openRemote} />
-        <IconButton icon="branch" label="在 Fork 中開啟" tooltip="執行 fork -C <repo> open" variant="solid" tone="accent" onPress={openInFork} />
-      </Toolbar>
+      {/* 靠右、縮小：跟 Orca 頂端的分頁列同大小又靠左時，看起來像另一排分頁 */}
+      <Row justify="end">
+        <Toolbar label="forrrk 操作" gap="none">
+          <IconButton icon="refresh" label="刷新" tooltip="重新定位儲存庫並讀取資訊" size="xs" onPress={reload} />
+          <IconButton icon="file" label="Push 目前檔案" tooltip="只對目前檔案執行 git-auto-push -a -f，不動其他變更" size="xs" onPress={autoPushFile} />
+          <IconButton icon="upload" label="Auto Push" tooltip="在 Orca 終端機執行 git-auto-push -a" size="xs" onPress={autoPush} />
+          <IconButton icon="folder" label="開啟資料夾" tooltip="在檔案管理員開啟儲存庫根目錄" size="xs" onPress={openFolder} />
+          <IconButton icon="globe" label="開啟遠端網頁" tooltip="用瀏覽器開啟遠端儲存庫" size="xs" onPress={openRemote} />
+          <IconButton icon="branch" label="在 Fork 中開啟" tooltip="執行 fork -C <repo> open" size="xs" variant="outline" tone="accent" onPress={openInFork} />
+        </Toolbar>
+      </Row>
 
       <ScopePicker result={result} />
       <NoticeView />
