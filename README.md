@@ -37,6 +37,20 @@
 
 限制：只支援本機的 workspace。SSH 或遠端環境的 workspace 路徑在本機讀不到 `.git`，不會出現在選單裡。
 
+## 安裝（社群外掛目錄）
+
+[Open in Orca](https://onorca.dev/plugins/lazyjerry.forrrk?catalog=community)
+
+或在 Orca 的 Settings → Plugins 搜尋 `forrrk`。外掛列在 Orca 社群目錄（[orca-community-plugins](https://github.com/stablyai/orca-community-plugins)），是自動檢查、沒有人工審查的目錄；第一次安裝時 Orca 會先問要不要加入社群目錄，再列出外掛要求的權限（見下一節）請你同意。
+
+支援平台：
+
+| 功能 | macOS | Windows | Linux |
+|---|---|---|---|
+| 面板的 git 資訊、開啟資料夾、開遠端網頁 | ✅ | ✅ | ✅ |
+| 在 Fork 中開啟（需自行安裝 Fork） | ✅ | ✅ | —（Fork 沒有 Linux 版） |
+| Auto Push／只推目前檔案（需自行安裝 git-auto-push） | ✅ | — | ✅ |
+
 ## 安裝（開發中載入）
 
 外掛含 worker（`trusted-worker`），以你的使用者權限在本機跑 Node，載入時要你同意：
