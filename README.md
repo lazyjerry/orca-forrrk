@@ -10,14 +10,13 @@
 >
 > - **呼叫 Fork**：透過 Fork 的命令列工具開啟目前的儲存庫；Fork 本體需自行安裝。
 > - **查詢 git 資訊**：唯讀顯示 HEAD 與遠端、最近提交、專案 README、忽略變更與 config 等 `.git` 資訊。
-
-## 可行性結論
-
-可以移植，而且大部分程式原樣沿用：
-
-- `src/core/` 是 forrrk 的 `src/core/` 原樣複製（純 Node，不依賴 `vscode`），只把 `installHint.ts` 裡一句「重新開啟 VS Code」改成 Orca。
-- 原本的 113 個 core 單元測試（mocha TDD）改成 `orca/testing` 的 `describe`／`test` 後全數通過，放在 `test/core/`。
-- 要重寫的是 VS Code 專屬的部分：webview 畫面改用 Orca components 面板（`src/panel.tsx`），`ForkViewProvider` 改成 Orca worker（`src/worker.ts`）。
+> - **整合 git-auto-push**：在 Orca 終端機執行 [git-auto-push](https://github.com/lazyjerry/git-auto-push) 腳本（Auto Push／只推目前檔案）；腳本需自行安裝，只支援 macOS／Linux：
+>
+>   ```sh
+>   curl -fsSL https://raw.githubusercontent.com/lazyjerry/git-auto-push/refs/heads/master/install.sh | sh
+>   ```
+>
+>   預設裝到 `~/.local/bin`；外掛會依序找 PATH、`~/.local/bin`、`/usr/local/bin`，沒裝時面板會顯示這行安裝指令。
 
 ## 功能對照
 
@@ -32,7 +31,7 @@
 | 開啟 `info/exclude`、README | `editor.open` 在 Orca 編輯器開啟 | 只能開 workspace 內的檔案；linked worktree 的 `info/exclude` 在主 repo 底下，改為顯示路徑 |
 | 開啟遠端網頁 | 面板 `shell.openExternal` | Orca 第一次開某個網域會先詢問 |
 | 開啟 Fork | worker 執行 `fork -C <repo> open` | 缺 CLI／未安裝時顯示安裝步驟與指令 |
-| Auto Push／只推目前檔案 | `terminal.create` 在該 workspace 開 Orca 終端機執行 `git-auto-push`，再用 `orca terminal switch` 切過去 | 外掛 API 只能開背景終端機，切換靠 Orca CLI（見下方〈權限清單以外〉）；不會自動關掉上一個終端機；Orca 編輯器未存檔的內容不會被提交 |
+| Auto Push／只推目前檔案 | `terminal.create` 在該 workspace 開 Orca 終端機執行 `git-auto-push`，再用 `orca terminal switch` 切過去 | 外掛 API 只能開背景終端機，切換靠 Orca CLI（見下方〈權限清單以外〉）；不會自動關掉上一個終端機；Orca 編輯器未存檔的內容不會被提交；按下後先在面板確認才執行 |
 | 點擊複製 SHA／路徑 | 無 | Orca 面板沒有剪貼簿 API；安裝指令改成顯示在程式碼區塊 |
 | 命令面板 | `forrrk: Open Current Repository in Fork`、`forrrk: Open Repository Folder`、`forrrk: Run git-auto-push -a` | 開遠端網頁需要使用者按下，只能在面板做 |
 
@@ -100,12 +99,13 @@ orca terminal switch --terminal <terminalId> --json
 | 上一個終端機 | 開新的之前先關掉 | 不會關，每按一次就多一個 |
 | 切換失敗時 | 不會發生，全程走擴充 API | 終端機照樣在背景執行，面板顯示警告和指令，讓你自己貼上執行 |
 | 依賴 | 只用 VS Code 擴充 API | 外掛 API 加上 Orca CLI，CLI 不在外掛 API 的相容性承諾內 |
+| 按下按鈕後 | 直接執行 | 先在面板顯示確認（`-a` 是全自動模式，不會再提問），按「確認」才執行 |
 
 ## 開發
 
 ```sh
 orca plugin validate . --json
-orca plugin test . --json     # core 移植測試 + worker + 面板，共 137 個
+orca plugin test . --json     # core 移植測試 + worker + 面板，共 139 個
 orca plugin check . --json    # 依 src/panel.check.ts 的情境畫面板
 orca plugin dev watch . --check --shot .orca/shots --json
 ```
@@ -126,7 +126,7 @@ src/
 test/core/           來自 forrrk 的 core 單元測試
 ```
 
-`src/core/` 與上游同步時，直接覆蓋成 fork-ext 的 `src/core/`，再補回 `installHint.ts` 那一句。
+`src/core/` 與上游同步時，直接覆蓋成 fork-ext 的 `src/core/`，再把 `installHint.ts` 裡的「重新開啟 VS Code」改回 Orca。
 
 ## 授權
 

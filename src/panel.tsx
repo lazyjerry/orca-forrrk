@@ -5,14 +5,13 @@ import {
   Badge,
   Button,
   Callout,
-  Card,
+  Box,
   Code,
   CodeView,
   Collapsible,
   EmptyState,
   IconButton,
   Input,
-  KeyValue,
   List,
   ListItem,
   on,
@@ -28,6 +27,7 @@ import {
   Text,
   Toolbar,
   type KeyValueItem,
+  type OrcaNode,
   type PanelContext
 } from 'orca'
 
@@ -42,6 +42,8 @@ const data = atom<LoadResult | null>(null)
 const loading = atom(false)
 const notice = atom<Notice | null>(null)
 const confirming = atom<{ file: string; ignore: boolean } | null>(null)
+/** 等待確認的 git-auto-push；file 為 null 代表整個 repo（-a）。 */
+const pushConfirming = atom<{ file: string | null } | null>(null)
 /** 使用者在選單選的範圍；null 表示自動（編輯區開著檔案用 file）。聚焦或作用中檔案一換就回到自動。 */
 const scope = atom<Scope | null>(null)
 /** project 範圍下要檢查忽略狀態／單檔推送的檔案；file 範圍直接用編輯區的檔案。 */
@@ -76,7 +78,7 @@ async function act(run: () => Promise<Notice>, refreshAfter = false): Promise<vo
 
 const openInFork = () => act(() => plugin.request('forrrk.openInFork', workspaceInput()))
 const openFolder = () => act(() => plugin.request('forrrk.openFolder', workspaceInput()))
-const autoPush = () => act(() => plugin.request('forrrk.autoPush', workspaceInput()))
+const autoPush = () => set(pushConfirming, { file: null })
 const openFile = (target: 'readme' | 'exclude') => act(() => plugin.request('forrrk.openFile', { ...workspaceInput(), target }))
 
 function autoPushFile(): void {
@@ -89,7 +91,7 @@ function autoPushFile(): void {
     })
     return
   }
-  void act(() => plugin.request('forrrk.autoPush', { ...workspaceInput(), file }))
+  set(pushConfirming, { file })
 }
 
 async function openRemote(): Promise<void> {
@@ -117,9 +119,20 @@ async function confirmSkipWorktree(): Promise<void> {
   }
 }
 
+/** git-auto-push -a 是全自動模式，不會再提問，所以按鈕先確認，確認後才送給 worker。 */
+async function confirmAutoPush(): Promise<void> {
+  const pending = read(pushConfirming)
+  set(pushConfirming, null)
+  if (pending) {
+    await act(() => plugin.request('forrrk.autoPush', pending.file ? { ...workspaceInput(), file: pending.file } : workspaceInput()))
+  }
+}
+
 /** 聚焦的 workspace 或作用中檔案換了：回到自動範圍再重讀。 */
 function followFocus(): void {
   set(scope, null)
+  // 確認框說的是舊的 repo，目標換了就收掉，免得確認後推到另一個 repo。
+  set(pushConfirming, null)
   void reload()
 }
 
@@ -159,6 +172,7 @@ export default function Panel() {
       <ScopePicker result={result} />
       <NoticeView />
       <ConfirmView />
+      <PushConfirmView />
 
       {read(loading) && !result ? <Spinner label="讀取中…" /> : null}
       {result && !repo ? <NotARepo result={result} /> : null}
@@ -255,6 +269,34 @@ function ConfirmView() {
   )
 }
 
+function PushConfirmView() {
+  const pending = read(pushConfirming)
+  if (!pending) {
+    return null
+  }
+  const repoRoot = read(data)?.repo?.repoRoot ?? null
+  return (
+    <Callout tone="warning" title={pending.file ? `要只推送 ${pending.file} 嗎？` : '要執行 Auto Push 嗎？'}>
+      <Stack gap="xs">
+        <Text size="sm">
+          {pending.file
+            ? '全自動模式，不會再提問：只把這個檔案加入、提交並推送到遠端。'
+            : '全自動模式，不會再提問：把儲存庫裡所有變更加入、提交並推送到遠端。'}
+        </Text>
+        {repoRoot ? <Code block>{repoRoot}</Code> : null}
+        <Row gap="xs">
+          <Button size="sm" tone="warning" variant="solid" onPress={confirmAutoPush}>
+            {pending.file ? '確認推送此檔案' : '確認 Auto Push'}
+          </Button>
+          <Button size="sm" variant="ghost" onPress={() => set(pushConfirming, null)}>
+            取消
+          </Button>
+        </Row>
+      </Stack>
+    </Callout>
+  )
+}
+
 function NotARepo({ result }: { result: LoadResult }) {
   if (!result.workspace) {
     return (
@@ -293,7 +335,7 @@ function RepoView({ repo }: { repo: RepoInfo }) {
 /** HEAD 與遠端同一張卡：upstream 的「追蹤 main」講的就是上面那個分支。 */
 function HeadCard({ repo }: { repo: RepoInfo }) {
   return (
-    <Card title="HEAD" description="目前狀態與遠端">
+    <Section title="HEAD" description="目前狀態與遠端">
       <Stack gap="sm">
         <Row gap="xs" wrap>
           {repo.detached ? (
@@ -327,11 +369,11 @@ function HeadCard({ repo }: { repo: RepoInfo }) {
             if (remote.pushUrl && remote.pushUrl !== remote.url) {
               items.push({ label: 'Push URL', value: remote.pushUrl, code: true })
             }
-            return <KeyValue label={`${remote.name}${tracking}`} items={items} />
+            return <FieldList label={`${remote.name}${tracking}`} items={items} />
           })
         )}
       </Stack>
-    </Card>
+    </Section>
   )
 }
 
@@ -356,13 +398,13 @@ function ProjectCard({ repo }: { repo: RepoInfo }) {
   if (workflows.length > 0) items.push({ label: 'CI 流程 Workflows', value: workflows.join('、') })
 
   return (
-    <Card title="專案" description="Project">
+    <Section title="專案" description="Project">
       <Stack gap="sm">
         {project?.name ? (
           <Text weight="semibold">{project.version ? `${project.name} ${project.version}` : project.name}</Text>
         ) : null}
         {project?.description ? <Text size="sm">{project.description}</Text> : null}
-        <KeyValue items={items} />
+        <FieldList items={items} />
         {!project ? (
           <Text size="xs" muted>
             沒有找到 package.json 之類的專案宣告檔
@@ -383,14 +425,14 @@ function ProjectCard({ repo }: { repo: RepoInfo }) {
           </Collapsible>
         ) : null}
       </Stack>
-    </Card>
+    </Section>
   )
 }
 
 function ActivityCard({ repo }: { repo: RepoInfo }) {
   const { activity } = repo
   return (
-    <Card title="最近提交" description="Recent commits（來源為 reflog）">
+    <Section title="最近提交" description="Recent commits（來源為 reflog）">
       <Stack gap="sm">
         {activity.recentCommits.length === 0 ? (
           <Text size="sm" muted>
@@ -408,7 +450,7 @@ function ActivityCard({ repo }: { repo: RepoInfo }) {
             ))}
           </List>
         )}
-        <KeyValue
+        <FieldList
           items={[
             { label: '近 7 天', value: `${activity.commitsLast7Days} 次提交` },
             { label: '近 30 天', value: `${activity.commitsLast30Days} 次提交` },
@@ -425,7 +467,7 @@ function ActivityCard({ repo }: { repo: RepoInfo }) {
             : 'reflog 只記這台機器上的操作，不含別人推上遠端的提交。'}
         </Text>
       </Stack>
-    </Card>
+    </Section>
   )
 }
 
@@ -436,7 +478,7 @@ function IgnoreCard({ repo }: { repo: RepoInfo }) {
   const fileScope = read(data)?.scope === 'file'
   const selected = fileScope ? repo.activeFile?.relativePath : read(targetFile).trim()
   return (
-    <Card title="忽略變更" description="Ignored changes">
+    <Section title="忽略變更" description="Ignored changes">
       <Stack gap="sm">
         {fileScope ? null : (
           <Input
@@ -508,7 +550,7 @@ function IgnoreCard({ repo }: { repo: RepoInfo }) {
           )}
         </Collapsible>
       </Stack>
-    </Card>
+    </Section>
   )
 }
 
@@ -532,7 +574,7 @@ function ActiveFileView({ status }: { status: ActiveFileStatus | null }) {
   const relativePath = status.relativePath
   return (
     <Stack gap="xs">
-      <KeyValue
+      <FieldList
         items={[
           { label: '檔案', value: relativePath, code: true },
           { label: '忽略變更', value: ignored ? `是（${flags.join('、')}）` : '否', tone: ignored ? 'warning' : 'neutral' },
@@ -568,7 +610,7 @@ function ActiveFileView({ status }: { status: ActiveFileStatus | null }) {
 function ConfigCard({ repo }: { repo: RepoInfo }) {
   const groups = repo.configGroups
   return (
-    <Card title="其他設定" description="Config">
+    <Section title="其他設定" description="Config">
       {groups.length === 0 ? (
         <Text size="sm" muted>
           沒有其他設定
@@ -577,7 +619,7 @@ function ConfigCard({ repo }: { repo: RepoInfo }) {
         <Stack gap="xs">
           {groups.map((group) => (
             <Collapsible title={group.title} description={group.hasInclude ? '此設定引入了外部檔案，內容未展開' : undefined}>
-              <KeyValue
+              <FieldList
                 items={group.entries.map((entry) => {
                   const label = configLabel(group.title, entry.key)
                   return {
@@ -591,6 +633,57 @@ function ConfigCard({ repo }: { repo: RepoInfo }) {
           ))}
         </Stack>
       )}
-    </Card>
+    </Section>
+  )
+}
+
+/**
+ * 卡片外框：Card 沒有邊線參數，側邊欄裡邊線太淡，改用 Box 畫 accent 色邊線。
+ */
+function Section({ title, description, children }: { title: string; description?: string; children?: OrcaNode }) {
+  return (
+    <Box border="accent" radius="lg" padding="md" background="card" gap="sm">
+      <Stack gap="none">
+        <Text weight="semibold">{title}</Text>
+        {description ? (
+          <Text size="xs" muted>
+            {description}
+          </Text>
+        ) : null}
+      </Stack>
+      {children}
+    </Box>
+  )
+}
+
+/**
+ * 上標籤、下值的列表：側邊欄太窄，KeyValue 左右分欄會把值擠成一字一行。
+ */
+function FieldList({ label, items }: { label?: string; items: readonly KeyValueItem[] }) {
+  return (
+    <Stack gap="sm">
+      {label ? (
+        <Text size="sm" weight="medium">
+          {label}
+        </Text>
+      ) : null}
+      {items.map((item) => {
+        const value = item.value === null ? '—' : String(item.value)
+        return (
+          <Stack gap="none">
+            <Text size="xs" muted>
+              {item.label}
+            </Text>
+            {item.code ? (
+              <Code>{value}</Code>
+            ) : (
+              <Text size="sm" tone={item.tone}>
+                {value}
+              </Text>
+            )}
+          </Stack>
+        )
+      })}
+    </Stack>
   )
 }

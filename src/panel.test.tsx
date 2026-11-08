@@ -10,7 +10,7 @@ test('畫出 HEAD、專案、提交、忽略變更、設定五張卡', async () 
   const view = await mount(panel, { host })
   const summary = view.summary().join('\n')
   for (const title of ['HEAD', '專案', '最近提交', '忽略變更', '其他設定']) {
-    assert.ok(view.find({ type: 'Card', label: title }), `缺少卡片 ${title}\n${summary}`)
+    assert.ok(view.find({ type: 'Text', text: title }), `缺少卡片 ${title}\n${summary}`)
   }
   assert.ok(view.find({ type: 'Badge', text: 'main' }))
   assert.deepEqual(view.errors, [])
@@ -107,5 +107,60 @@ test('worker 通知作用中檔案換了就回到自動範圍重讀', async () =
   await view.post('forrrk.focusChanged', null)
   assert.equal(inputs.length, before + 1)
   assert.deepEqual(inputs.at(-1), { scope: null, file: null })
+  await view.unmount()
+})
+
+test('Auto Push 與只推目前檔案都要先確認，確認後才呼叫 worker', async () => {
+  const calls: unknown[] = []
+  const activeFile = { path: '/work/demo/a.txt', relativePath: 'a.txt', tracked: true, assumeUnchanged: false, skipWorktree: false, excludedBy: null }
+  const host = mockHost({
+    capabilities: CAPABILITIES,
+    requests: {
+      'forrrk.load': () => ({ ...sampleLoad({ activeFile }), scope: 'file' as const, openFile: '/work/demo/a.txt' }),
+      'forrrk.autoPush': (input) => {
+        calls.push(input)
+        return { level: 'info', message: '已在 Orca 終端機執行 git-auto-push' }
+      }
+    }
+  })
+  const view = await mount(panel, { host })
+
+  await view.press({ type: 'IconButton', label: 'Auto Push' })
+  assert.deepEqual(calls, [], '按第一下只顯示確認，不能直接執行')
+  assert.ok(view.find({ type: 'Callout', label: '要執行 Auto Push 嗎？' }))
+  await view.press({ text: '確認 Auto Push' })
+  assert.deepEqual(calls, [{ scope: 'file' }])
+  assert.equal(view.find({ type: 'Callout', label: '要執行 Auto Push 嗎？' }), null)
+
+  await view.press({ type: 'IconButton', label: 'Push 目前檔案' })
+  assert.equal(calls.length, 1)
+  assert.ok(view.find({ type: 'Callout', label: '要只推送 a.txt 嗎？' }))
+  await view.press({ text: '確認推送此檔案' })
+  assert.deepEqual(calls.at(-1), { scope: 'file', file: 'a.txt' })
+  await view.unmount()
+})
+
+test('Auto Push 的確認可以取消；聚焦換了也會收掉', async () => {
+  const calls: unknown[] = []
+  const host = mockHost({
+    capabilities: CAPABILITIES,
+    requests: {
+      'forrrk.load': () => sampleLoad(),
+      'forrrk.autoPush': (input) => {
+        calls.push(input)
+        return { level: 'info', message: 'ok' }
+      }
+    }
+  })
+  const view = await mount(panel, { host })
+
+  await view.press({ type: 'IconButton', label: 'Auto Push' })
+  await view.press({ type: 'Button', text: '取消' })
+  assert.equal(view.find({ type: 'Callout', label: '要執行 Auto Push 嗎？' }), null)
+
+  await view.press({ type: 'IconButton', label: 'Auto Push' })
+  await view.post('forrrk.focusChanged', null)
+  assert.equal(view.find({ type: 'Callout', label: '要執行 Auto Push 嗎？' }), null, '目標換了，舊的確認不能留著')
+  assert.deepEqual(calls, [])
   await view.unmount()
 })
