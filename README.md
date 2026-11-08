@@ -55,6 +55,25 @@ orca plugin open local.forrrk --panel forrrk
 - `workspace:write`：在 Orca 編輯器開啟 README／`info/exclude`
 - `terminal:send`：開終端機執行 `git-auto-push`
 
+### 權限清單以外：直接讀取 Orca 內部的 session 資料
+
+除了上面的權限，worker 還會**繞過外掛 API，直接讀 Orca 自己的 session 資料庫**。權限宣告裡沒有這一項，能讀是因為 `trusted-worker` 沒有沙箱，可以讀使用者權限能讀到的任何檔案。
+
+- **讀什麼**：
+  - `<Orca userData>/orca-profile-index.json`：取得啟用中的 profile id。
+  - `<Orca userData>/profiles/<profileId>/profile-state.db`：用 `node:sqlite` 唯讀開啟，只查 `profile_state_documents` 表裡 `domain='workspaceSession'` 那一筆，取 `activeWorktreeId`、`activeFileIdByWorktree`、`activeTabTypeByWorktree`。
+  - `<Orca userData>` 是 Electron 的預設位置：macOS 為 `~/Library/Application Support/orca`，Windows 為 `%APPDATA%\orca`，Linux 為 `$XDG_CONFIG_HOME/orca`（未設定時是 `~/.config/orca`）。
+- **監看**：用 `fs.watch` 監看該 profile 目錄，`profile-state.db` 相關檔案有變動就重讀，300 ms 內的變動合併成一次。
+- **為什麼要讀**：外掛 API 的 `workspace.readContext` 只給聚焦 workspace 的名稱與分支，多個 workspace 同名又同分支時分不出是哪一個；外掛 API 和 `orca` CLI 也都拿不到「作用中的編輯器檔案」。
+- **不做的事**：不寫入、不讀其他 domain、不傳到本機以外。
+- **交叉驗證**：session 指到的 workspace 要跟 `readContext` 的名稱、分支一致才採用，不一致時退回只比對名稱＋分支。
+
+風險：
+
+- **格式沒有公開**：Orca 改版可能改動表名或鍵名。讀取或解析失敗時會靜默退回名稱＋分支比對，面板**不會顯示任何提示**。退化後的症狀：選單的「當前開啟檔案」一直沒有檔案；同名同分支的 workspace 顯示「對不到目前的 workspace」。排查方式是用 `sqlite3 -readonly` 查看 payload 的鍵名有沒有變。
+- **依賴執行環境**：需要 `node:sqlite`（Orca 內建 Node 24）。換成比較舊的 runtime 一樣會靜默退回。
+- **只找預設位置**：Orca 改用自訂的 user data 目錄啟動時找不到資料庫，一樣會退回。
+
 ## 開發
 
 ```sh
