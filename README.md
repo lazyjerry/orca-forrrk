@@ -32,7 +32,7 @@
 | 開啟 `info/exclude`、README | `editor.open` 在 Orca 編輯器開啟 | 只能開 workspace 內的檔案；linked worktree 的 `info/exclude` 在主 repo 底下，改為顯示路徑 |
 | 開啟遠端網頁 | 面板 `shell.openExternal` | Orca 第一次開某個網域會先詢問 |
 | 開啟 Fork | worker 執行 `fork -C <repo> open` | 缺 CLI／未安裝時顯示安裝步驟與指令 |
-| Auto Push／只推目前檔案 | `terminal.create` 在該 workspace 開 Orca 終端機執行 `git-auto-push` | 不會自動關掉上一個終端機；Orca 編輯器未存檔的內容不會被提交 |
+| Auto Push／只推目前檔案 | `terminal.create` 在該 workspace 開 Orca 終端機執行 `git-auto-push`，再用 `orca terminal switch` 切過去 | 外掛 API 只能開背景終端機，切換靠 Orca CLI（見下方〈權限清單以外〉）；不會自動關掉上一個終端機；Orca 編輯器未存檔的內容不會被提交 |
 | 點擊複製 SHA／路徑 | 無 | Orca 面板沒有剪貼簿 API；安裝指令改成顯示在程式碼區塊 |
 | 命令面板 | `forrrk: Open Current Repository in Fork`、`forrrk: Open Repository Folder`、`forrrk: Run git-auto-push -a` | 開遠端網頁需要使用者按下，只能在面板做 |
 
@@ -74,11 +74,27 @@ orca plugin open local.forrrk --panel forrrk
 - **依賴執行環境**：需要 `node:sqlite`（Orca 內建 Node 24）。換成比較舊的 runtime 一樣會靜默退回。
 - **只找預設位置**：Orca 改用自訂的 user data 目錄啟動時找不到資料庫，一樣會退回。
 
+### 權限清單以外：呼叫 Orca CLI 切換到 git-auto-push 的終端機
+
+外掛 API 的 `terminal.create` 固定以背景方式開終端機（Orca 內部帶 `presentation: 'background'`）：程序在跑，但沒有分頁，畫面上找不到。外掛 API 也沒有切換終端機的方法。`git-auto-push` 會提問，看不到就會一直卡在那裡等。
+
+所以 worker 開完終端機後，會**繞過外掛 API，直接執行 Orca CLI**：
+
+```sh
+orca terminal switch --terminal <terminalId> --json
+```
+
+- **為什麼可以這樣做**：`terminal.create` 回傳的 `terminalId` 就是 CLI 的 terminal handle（`term_...`）。`switch` 會替背景終端機補上分頁並把畫面切過去。
+- **CLI 的位置**：先找 PATH 上的 `orca`，找不到再用 worker 所在 `Orca.app` 內附的 `Contents/Resources/bin/orca`。
+- **切換失敗時**：終端機照樣在背景執行。面板改顯示警告，附上原因和上面那行指令，讓你自己貼到終端機執行。
+- **副作用**：會把 Orca 的畫面切到該終端機。
+- **風險**：CLI 的指令與參數不屬於外掛 API 的相容性承諾，Orca 改版後可能改變。症狀是每次按 Auto Push 都出現「切換不過去」的警告。這時先用 `orca terminal switch --help` 確認參數有沒有變。
+
 ## 開發
 
 ```sh
 orca plugin validate . --json
-orca plugin test . --json     # core 移植測試 + worker + 面板，共 134 個
+orca plugin test . --json     # core 移植測試 + worker + 面板，共 137 個
 orca plugin check . --json    # 依 src/panel.check.ts 的情境畫面板
 orca plugin dev watch . --check --shot .orca/shots --json
 ```

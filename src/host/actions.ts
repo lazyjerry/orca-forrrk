@@ -198,3 +198,44 @@ export async function setSkipWorktree(repoRoot: string, workspacePath: string, f
   }
   return { level: 'info', message: `已${action} ${resolved.relative}` }
 }
+
+const ORCA_SWITCH_TIMEOUT_MS = 10_000
+
+/**
+ * 找 `orca` CLI 的順序：PATH 上的 `orca`，再來是 worker 所在的 Orca.app 自帶的 `Contents/Resources/bin/orca`。
+ * worker 跑在 Orca 的 Electron 裡，execPath 是 `.../Orca.app/Contents/MacOS/Orca`（或其 Helper），取第一個 `.app` 為止。
+ */
+export function orcaCliCandidates(execPath: string = process.execPath): string[] {
+  const candidates = ['orca']
+  const appEnd = execPath.indexOf('.app/')
+  if (appEnd >= 0) {
+    candidates.push(path.posix.join(execPath.slice(0, appEnd + 4), 'Contents', 'Resources', 'bin', 'orca'))
+  }
+  return candidates
+}
+
+/** 給使用者自己貼到終端機的版本。 */
+export const switchTerminalCommand = (terminalId: string): string => `orca terminal switch --terminal ${shellQuote(terminalId)}`
+
+/**
+ * 外掛 API 的 terminal.create 固定以背景方式開終端機（沒有分頁，畫面上看不到），外掛 API 也沒有切換終端機的方法。
+ * 這裡改呼叫 Orca CLI 的 `orca terminal switch`：它會替背景終端機補上分頁並切過去。
+ * terminal.create 回傳的 terminalId 就是 CLI 的 terminal handle。
+ */
+export async function revealTerminal(terminalId: string, candidates: readonly string[] = orcaCliCandidates()): Promise<{ ok: true } | { ok: false; reason: string }> {
+  let reason = '找不到 orca 指令'
+  for (const cli of candidates) {
+    try {
+      await execFileAsync(cli, ['terminal', 'switch', '--terminal', terminalId, '--json'], { timeout: ORCA_SWITCH_TIMEOUT_MS })
+      return { ok: true }
+    } catch (error) {
+      // 這個位置沒有 orca 就試下一個；有 orca 但執行失敗就不再試。
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        continue
+      }
+      reason = errorText(error)
+      break
+    }
+  }
+  return { ok: false, reason }
+}

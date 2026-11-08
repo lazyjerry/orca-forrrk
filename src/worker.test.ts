@@ -4,6 +4,7 @@ import path from 'node:path'
 import { afterEach, assert, beforeEach, describe, mockHost, mountWorker, test } from 'orca/testing'
 
 import { makeTempDir, removeTempDir, writeFile } from '../test/core/helpers'
+import { orcaCliCandidates } from './host/actions'
 import { matchSessionWorkspace, orcaUserDataDir, parseFileId, parseWorkspaceSession } from './host/orcaSession'
 import { matchFocused } from './host/workspaces'
 import * as main from './worker'
@@ -168,6 +169,9 @@ describe('worker', () => {
     const bin = path.join(root, 'bin')
     await writeFile(root, 'bin/git-auto-push', '#!/bin/sh\n')
     await fs.chmod(path.join(bin, 'git-auto-push'), 0o755)
+    // 假的 orca，切換終端機時才不會打到這台機器真正的 Orca。
+    await writeFile(root, 'bin/orca', '#!/bin/sh\n')
+    await fs.chmod(path.join(bin, 'orca'), 0o755)
     const originalPath = process.env.PATH
     process.env.PATH = `${bin}:${originalPath ?? ''}`
     try {
@@ -181,6 +185,41 @@ describe('worker', () => {
     } finally {
       process.env.PATH = originalPath
     }
+  })
+
+  test('autoPush 開完背景終端機後用 orca CLI 切過去；切不過去就給指令', async () => {
+    // 假的 git-auto-push 與 orca 都放在 PATH 最前面；orca 把收到的參數寫進檔案，exit code 由 ORCA_FAKE_EXIT 決定。
+    const bin = path.join(root, 'bin')
+    const record = path.join(root, 'orca-args.txt')
+    await writeFile(root, 'bin/git-auto-push', '#!/bin/sh\n')
+    await writeFile(root, 'bin/orca', `#!/bin/sh\necho "$@" > '${record}'\nexit "\${ORCA_FAKE_EXIT:-0}"\n`)
+    await fs.chmod(path.join(bin, 'git-auto-push'), 0o755)
+    await fs.chmod(path.join(bin, 'orca'), 0o755)
+    const originalPath = process.env.PATH
+    process.env.PATH = `${bin}:${originalPath ?? ''}`
+    try {
+      const worker = await mountWorker(main, { host: hostFor(root) })
+      const ok = await worker.request('forrrk.autoPush', {})
+      assert.equal(ok.level, 'info')
+      assert.match(ok.message, /並切到該終端機/)
+      assert.equal((await fs.readFile(record, 'utf8')).trim(), 'terminal switch --terminal t1 --json')
+
+      process.env.ORCA_FAKE_EXIT = '1'
+      const failed = await worker.request('forrrk.autoPush', {})
+      assert.equal(failed.level, 'warn')
+      assert.equal(failed.command, "orca terminal switch --terminal 't1'")
+    } finally {
+      process.env.PATH = originalPath
+      delete process.env.ORCA_FAKE_EXIT
+    }
+  })
+
+  test('orca CLI 先找 PATH，再找 worker 所在 Orca.app 自帶的那一支', () => {
+    assert.deepEqual(orcaCliCandidates('/Applications/Orca.app/Contents/Frameworks/Orca Helper.app/Contents/MacOS/Orca Helper'), [
+      'orca',
+      '/Applications/Orca.app/Contents/Resources/bin/orca'
+    ])
+    assert.deepEqual(orcaCliCandidates('/usr/bin/node'), ['orca'])
   })
 
   test('沒裝 git-auto-push 時不開終端機，提示安裝指令與 GitHub 位置', async () => {

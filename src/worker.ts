@@ -16,7 +16,9 @@ import {
   prepareFilePush,
   resolveGitAutoPushCli,
   resolveRepoFile,
-  setSkipWorktree
+  revealTerminal,
+  setSkipWorktree,
+  switchTerminalCommand
 } from './host/actions'
 import { locateSessionDb, matchSessionWorkspace, readOrcaSession, sessionKey, watchSessionDb } from './host/orcaSession'
 import { localWorkspaces, matchFocused } from './host/workspaces'
@@ -141,12 +143,22 @@ async function autoPush(orca: OrcaWorkerApi, input: WorkspaceInput & { file?: st
     return cli.notice
   }
   // git-auto-push 是互動式腳本（選單、AI 產生訊息），不能藏在背景子行程，一提問就卡死。
-  await orca.host.call('terminal.create', {
+  const { terminalId } = await orca.host.call('terminal.create', {
     workspaceId: target.workspace.id,
     title: 'git-auto-push',
     command: autoPushCommand(cli.cliPath, root, args)
   })
-  return { level: 'info', message: '已在 Orca 終端機執行 git-auto-push，請切到該終端機回答提問。' }
+  // terminal.create 開的是背景終端機，畫面上沒有分頁；改用 Orca CLI 切過去，切不過去就給指令讓使用者自己切。
+  const revealed = await revealTerminal(terminalId)
+  if (revealed.ok) {
+    return { level: 'info', message: '已在 Orca 終端機執行 git-auto-push，並切到該終端機，請在那裡回答提問。' }
+  }
+  return {
+    level: 'warn',
+    message: '已在背景終端機執行 git-auto-push，但切換不過去，畫面上看不到它。',
+    detail: `原因：${revealed.reason}\n請在任一終端機執行下面的指令切過去，git-auto-push 提問時會一直等你回答。`,
+    command: switchTerminalCommand(terminalId)
+  }
 }
 
 async function openFile(orca: OrcaWorkerApi, input: WorkspaceInput & { target: 'readme' | 'exclude' }): Promise<Notice> {
