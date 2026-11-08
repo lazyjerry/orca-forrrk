@@ -1,0 +1,87 @@
+# forrrk for Orca
+
+把 VS Code 擴充 [forrrk](https://marketplace.visualstudio.com/items?itemName=workjerry.forrrk)（[lazyjerry/fork-ext](https://github.com/lazyjerry/fork-ext) v0.2.0）移植成 Orca 外掛：在 Orca 右側邊欄顯示 workspace 所在儲存庫的唯讀 git 資訊，並一鍵用 [Fork](https://git-fork.com/) 開啟。
+
+原始碼：[lazyjerry/orca-forrrk](https://github.com/lazyjerry/orca-forrrk)
+
+讀取資訊直接讀 `.git` 底下的檔案，不呼叫 `git`；只有「取消／恢復追蹤變更」與「只推目前檔案」的前置檢查會執行 git。
+
+> **非官方套件**：forrrk 不是 [Fork](https://git-fork.com/) 官方出品的外掛，與 Fork 及其開發者沒有任何關係。主要用途：
+>
+> - **呼叫 Fork**：透過 Fork 的命令列工具開啟目前的儲存庫；Fork 本體需自行安裝。
+> - **查詢 git 資訊**：唯讀顯示 HEAD 與遠端、最近提交、專案 README、忽略變更與 config 等 `.git` 資訊。
+
+## 可行性結論
+
+可以移植，而且大部分程式原樣沿用：
+
+- `src/core/` 是 forrrk 的 `src/core/` 原樣複製（純 Node，不依賴 `vscode`），只把 `installHint.ts` 裡一句「重新開啟 VS Code」改成 Orca。
+- 原本的 113 個 core 單元測試（mocha TDD）改成 `orca/testing` 的 `describe`／`test` 後全數通過，放在 `test/core/`。
+- 要重寫的是 VS Code 專屬的部分：webview 畫面改用 Orca components 面板（`src/panel.tsx`），`ForkViewProvider` 改成 Orca worker（`src/worker.ts`）。
+
+## 功能對照
+
+| forrrk（VS Code） | Orca 版 | 差異 |
+|---|---|---|
+| 底部 Panel 的 webview | 右側邊欄 components 面板 | 版面改用 Orca 元件，跟著 Orca 主題 |
+| 跟隨作用中編輯器找 `.git` | 範圍選單兩項：「當前專案／資料夾」與「當前開啟檔案」；編輯區開著檔案時自動用檔案所在的 repo，資料夾沒有 git 時直接提示 | 外掛 API 沒有「作用中編輯器」，聚焦的 workspace 也只給名稱與分支；worker 改為唯讀 Orca 的 `profile-state.db`（未公開格式，讀不到時退回名稱＋分支比對、沒有檔案範圍） |
+| 手動刷新 | 手動刷新；切換聚焦的 workspace 或編輯區換檔案時自動重讀 | 面板不輪詢；worker 監看 Orca 的 session 檔，作用中檔案換了才通知面板 |
+| 開啟資料夾 | worker 執行 `open`／`explorer`／`xdg-open` | 相同 |
+| 忽略變更切換（含確認對話框） | 面板兩段式確認（先顯示後果，再按「確認」） | Orca 面板沒有 modal |
+| 目前檔案的忽略狀態 | 「當前開啟檔案」範圍直接看編輯區的檔案；「當前專案／資料夾」範圍在卡片輸入 repo 內相對路徑，或點選清單裡的檔案 | 相同 |
+| 開啟 `info/exclude`、README | `editor.open` 在 Orca 編輯器開啟 | 只能開 workspace 內的檔案；linked worktree 的 `info/exclude` 在主 repo 底下，改為顯示路徑 |
+| 開啟遠端網頁 | 面板 `shell.openExternal` | Orca 第一次開某個網域會先詢問 |
+| 開啟 Fork | worker 執行 `fork -C <repo> open` | 缺 CLI／未安裝時顯示安裝步驟與指令 |
+| Auto Push／只推目前檔案 | `terminal.create` 在該 workspace 開 Orca 終端機執行 `git-auto-push` | 不會自動關掉上一個終端機；Orca 編輯器未存檔的內容不會被提交 |
+| 點擊複製 SHA／路徑 | 無 | Orca 面板沒有剪貼簿 API；安裝指令改成顯示在程式碼區塊 |
+| 命令面板 | `forrrk: Open Current Repository in Fork`、`forrrk: Open Repository Folder`、`forrrk: Run git-auto-push -a` | 開遠端網頁需要使用者按下，只能在面板做 |
+
+限制：只支援本機的 workspace。SSH 或遠端環境的 workspace 路徑在本機讀不到 `.git`，不會出現在選單裡。
+
+## 安裝（開發中載入）
+
+外掛含 worker（`trusted-worker`），以你的使用者權限在本機跑 Node，載入時要你同意：
+
+```sh
+cd forrrk
+orca plugin dev load . --json          # 第一次會回 approval_required，列出要授予的權限與 fingerprint
+orca plugin dev load . --approve <fingerprint> --json
+orca plugin open local.forrrk --panel forrrk
+```
+
+要求的權限：
+
+- `workspace:read`：讀取聚焦的 workspace 與 workspace 清單
+- `workspace:write`：在 Orca 編輯器開啟 README／`info/exclude`
+- `terminal:send`：開終端機執行 `git-auto-push`
+
+## 開發
+
+```sh
+orca plugin validate . --json
+orca plugin test . --json     # core 移植測試 + worker + 面板，共 134 個
+orca plugin check . --json    # 依 src/panel.check.ts 的情境畫面板
+orca plugin dev watch . --check --shot .orca/shots --json
+```
+
+型別檢查需要 `@types/node`。不要把 `node_modules/` 裝在外掛資料夾裡（外掛上限 2,000 個檔案），改裝在別處，再用一份 `extends` 本專案 `.orca/types/tsconfig.json` 的 tsconfig，`types` 加上 `node` 後執行 `tsc -p`。
+
+## 目錄
+
+```
+orca-plugin.json
+src/
+  worker.ts          面板請求的處理、命令面板指令
+  panel.tsx          右側邊欄面板
+  protocol.ts        面板 ⇄ worker 協定
+  host/              worker 端的動作（Fork、資料夾、git、git-auto-push）、workspace 對應、Orca session 讀取
+  panel/             面板端的格式化、config 中文標籤、測試假資料
+  core/              來自 forrrk 的 .git 讀取邏輯（原樣）
+test/core/           來自 forrrk 的 core 單元測試
+```
+
+`src/core/` 與上游同步時，直接覆蓋成 fork-ext 的 `src/core/`，再補回 `installHint.ts` 那一句。
+
+## 授權
+
+[Apache License 2.0](LICENSE)，沿用上游 [lazyjerry/fork-ext](https://github.com/lazyjerry/fork-ext) 的授權；`LICENSE` 由上游原樣複製。
